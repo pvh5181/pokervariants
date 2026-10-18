@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poker Variants</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+
+  <div id="view-landing" class="view">
+    <div class="landing-wrap">
+      <h1>Poker Variants</h1>
+      <div class="panel">
+        <h2>Create a table</h2>
+        <label>Your name <input id="c-name" maxlength="20"></label>
+        <label>Starting stack <input id="c-stack" type="number" min="0.01" step="0.01" value="2000"></label>
+        <div class="row2">
+          <label>Small blind <input id="c-sb" type="number" min="0.01" step="0.01" value="1"></label>
+          <label>Big blind <input id="c-bb" type="number" min="0.01" step="0.01" value="2"></label>
+        </div>
+        <button id="btn-create" class="primary">Create table</button>
+        <div class="hint">You will be the host and can change variants, blinds and manage the table.</div>
+      </div>
+      <div class="panel">
+        <h2>Join a table</h2>
+        <input id="j-link" placeholder="Paste a table link">
+        <button id="btn-openlink">Open</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="view-join" class="view" hidden>
+    <div class="landing-wrap">
+      <div class="panel">
+        <h2>Join table <span id="j-table"></span></h2>
+        <label>Your name <input id="jn-name" maxlength="20"></label>
+        <label>Proposed buy-in stack <input id="jn-stack" type="number" min="0.01" step="0.01" value="1000"></label>
+        <div class="row2">
+          <button id="btn-join" class="primary">Request seat</button>
+          <button id="btn-watch">Watch only</button>
+        </div>
+        <div class="hint">The host must approve your seat request. "Watch only" lets you see the table and chat without sitting — click an empty seat whenever you want to sit down.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="view-table" class="view" hidden>
+    <div id="topbar">
+      <span id="t-title"></span>
+      <span id="t-status" class="muted"></span>
+      <span class="spacer"></span>
+      <button id="btn-copy">Copy link</button>
+      <button id="btn-stand" hidden>Leave seat</button>
+      <button id="btn-sitout" hidden>Sit out</button>
+      <button id="btn-chips" hidden>Buy chips</button>
+      <button id="btn-panels">Info</button>
+      <button id="btn-host" hidden>Host settings</button>
+      <button id="btn-pause" hidden>Pause</button>
+      <button id="btn-bb" title="Toggle big-blind view">BB</button>
+      <button id="btn-sound" title="Sound on/off">🔉</button>
+    </div>
+
+    <div id="tablewrap">
+      <div id="table">
+        <div class="ring ring-black"></div>
+        <div class="ring ring-brown"></div>
+        <div class="ring ring-green"></div>
+        <div id="board">
+          <div id="board-cards"></div>
+          <div id="board-cards2" class="board2"></div>
+          <div id="pot"></div>
+          <div id="board-note"></div>
+          <div id="board-rabbit"></div>
+        </div>
+        <div id="seats"></div>
+      </div>
+    </div>
+
+    <div id="actionrow">
+      <div id="actionbar" hidden></div>
+      <div id="timebankbox" hidden></div>
+    </div>
+
+    <div id="overlay" hidden><div class="ovbox"></div></div>
+
+    <div id="spectator-banner" hidden></div>
+
+    <div id="leftdock">
+      <div id="chat-tools">
+        <button id="btn-chat-ledger">Ledger</button>
+        <button id="btn-chat-history">History</button>
+      </div>
+      <div id="chat">
+        <div id="chat-log"></div>
+        <input id="chat-input" maxlength="500" placeholder="chat with the table...">
+      </div>
+    </div>
+
+    <div id="sidepanel" hidden>
+      <div class="tabs">
+        <button data-tab="host" class="tabbtn" id="tabbtn-host">Host</button>
+        <button data-tab="info" class="tabbtn" id="tabbtn-info">Game info</button>
+        <button data-tab="ledger" class="tabbtn">Ledger</button>
+        <button data-tab="history" class="tabbtn">History</button>
+      </div>
+      <div id="tab-host" class="tab"></div>
+      <div id="tab-info" class="tab" hidden></div>
+      <div id="tab-ledger" class="tab" hidden></div>
+      <div id="tab-history" class="tab" hidden></div>
+    </div>
+
+    <div id="run2-modal" hidden>
+      <div class="modalbox">
+        <h3>Run it twice?</h3>
+        <p>You are all-in. The table allows running it twice. Both players must agree.</p>
+        <div id="r2-countdown" class="muted"></div>
+        <div class="row2">
+          <button id="r2-yes" class="primary">Yes, run it twice</button>
+          <button id="r2-no">No, once</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="handrank" hidden></div>
+
+    <div id="fold-modal" hidden>
+      <div class="modalbox">
+        <h3>Unnecessary fold</h3>
+        <p>You can check and see the next card(s) for free. Are you sure you want to fold?</p>
+        <div class="row2">
+          <button id="fold-check" class="primary">Check</button>
+          <button id="fold-go" class="danger">Fold</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="chips-modal" hidden>
+      <div class="modalbox">
+        <h3>Request chips</h3>
+        <p>Enter the stack you want to add. The host will approve or deny it.</p>
+        <input id="chips-amt" type="number" min="0.01" step="0.01" value="1000">
+        <div class="row2">
+          <button id="chips-go" class="primary">Request</button>
+          <button id="chips-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="sit-modal" hidden>
+      <div class="modalbox">
+        <h3>Sit at seat <span id="sit-seat"></span></h3>
+        <p>Enter your buy-in stack. The host must approve your request.</p>
+        <input id="sit-amt" type="number" min="0.01" step="0.01" value="1000">
+        <div class="row2">
+          <button id="sit-go" class="primary">Request seat</button>
+          <button id="sit-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" hidden></div>
+  </div>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

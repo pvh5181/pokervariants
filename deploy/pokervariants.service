@@ -1,0 +1,36 @@
+[Unit]
+Description=PokerVariants C++ server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=poker
+Group=poker
+WorkingDirectory=/opt/pokervariants
+ExecStart=/opt/pokervariants/pokerserver 8080
+Restart=on-failure
+RestartSec=2s
+KillSignal=SIGTERM
+TimeoutStopSec=10s
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=true
+LockPersonality=true
+LimitNOFILE=65536
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pokervariants
+
+[Install]
+WantedBy=multi-user.target
