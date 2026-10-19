@@ -11,6 +11,7 @@
 
 static std::map<std::string, std::unique_ptr<Table>> tables;
 static Net net;
+static const char* kVersion = "2026.10.19-transfer-2";
 
 static std::map<std::string, std::string> parseQuery(const std::string& q) {
   std::map<std::string, std::string> out;
@@ -58,6 +59,18 @@ static bool onHttp(Conn& c) {
   const std::string& p = c.path;
   if (c.method != "GET") {
     net.respond(&c, 405, "text/plain", "method not allowed");
+    return false;
+  }
+  if (p == "/api/version") {
+    auto j = J::obj();
+    j->o["version"] = J::str(kVersion);
+    auto f = J::obj();
+    f->o["transferHost"] = J::boolean(true);
+    f->o["electHost"] = J::boolean(true);
+    f->o["setStack"] = J::boolean(true);
+    f->o["moveSeat"] = J::boolean(true);
+    j->o["features"] = f;
+    net.respond(&c, 200, "application/json", J::dump(j));
     return false;
   }
   if (p.rfind("/api/table/", 0) == 0) {
@@ -168,7 +181,7 @@ int main(int argc, char** argv) {
     fprintf(stderr, "failed to listen on port %d\n", port);
     return 1;
   }
-  printf("PokerVariants server listening on port %d%s\n", port, gVerbose ? " (verbose)" : "");
+  printf("PokerVariants server %s listening on port %d%s\n", kVersion, port, gVerbose ? " (verbose)" : "");
   net.setHttp(onHttp);
   net.setMsg(onMsg);
   net.setClose(onClose);

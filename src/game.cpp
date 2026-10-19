@@ -1692,4 +1692,5 @@ void Table::handleMsg(Conn* c, int playerId, const J::Ptr& m) {
     sendTo(p, J::dump(j));
     return;
   }
+  errTo(p, "unknown command: " + t);
 }

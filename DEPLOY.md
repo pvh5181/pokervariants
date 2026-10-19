@@ -291,6 +291,15 @@ through the same Nginx proxy.
 
 ## 7. End-to-end verification
 
+Check the deployed backend version first:
+
+```sh
+curl -fsS "https://$PRIMARY_DOMAIN/api/version"
+```
+
+The response must include all of these feature flags set to `true`:
+`transferHost`, `electHost`, `setStack`, and `moveSeat`.
+
 From the deployed site:
 
 1. Create a table with a name and starting stack.
@@ -299,11 +308,13 @@ From the deployed site:
 3. Copy the link and open it on a phone or another network.
 4. Request a seat with a different name and stack.
 5. Approve the request from the host's **Host settings** panel.
-6. Start the game, play a hand, and send a chat message from each client.
-7. In browser developer tools, confirm the WebSocket connection is `wss://`
+6. Use **Make host** to transfer host permissions, then disconnect the new host
+   and confirm another online player becomes host.
+7. Start the game, play a hand, and send a chat message from each client.
+8. In browser developer tools, confirm the WebSocket connection is `wss://`
    and stays open.
-8. Check that port 8080 is not reachable from outside the VPS.
-9. Confirm host keys are absent from Nginx access logs:
+9. Check that port 8080 is not reachable from outside the VPS.
+10. Confirm host keys are absent from Nginx access logs:
 
    ```sh
    grep 'k=' /var/log/nginx/pokervariants.access.log || echo "no host keys found"
@@ -472,6 +483,39 @@ Every hostname must return `63.250.41.224`. In particular:
 - `variancepoker.online` returning nothing means its A records were never saved.
 - Remove conflicting CNAME records for the same hosts and wait for DNS
   propagation before retrying.
+
+### Host transfer works locally but not on the deployed server
+
+This almost always means the VPS is still running an old `pokerserver` binary.
+The frontend may be new while the backend ignores `transfer` messages and does
+not elect a new host.
+
+Check the deployed version:
+
+```sh
+curl -fsS "https://variancepoker.live/api/version"
+```
+
+An older backend returns `404`, or a response without `transferHost` and
+`electHost`. Rebuild and restart it:
+
+```sh
+cd /opt/pokervariants
+make clean && make
+systemctl restart pokervariants
+systemctl status pokervariants --no-pager
+```
+
+Also confirm no old manual process is holding port 8080:
+
+```sh
+ss -ltnp | grep 8080
+PID=$(ss -ltnp | grep 8080 | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
+readlink -f /proc/$PID/exe
+```
+
+If the running executable is not `/opt/pokervariants/pokerserver`, stop the old
+process before restarting the service.
 
 ### `502 Bad Gateway`
 
