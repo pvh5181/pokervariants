@@ -15,7 +15,7 @@
       <div class="panel">
         <h2>Create a table</h2>
         <label>Your name <input id="c-name" maxlength="20"></label>
-        <label>Starting stack <input id="c-stack" type="number" min="0.01" step="0.01" value="2000"></label>
+        <label>Starting stack <input id="c-stack" type="number" min="0.01" step="0.01" placeholder="2000"></label>
         <div class="row2">
           <label>Small blind <input id="c-sb" type="number" min="0.01" step="0.01" value="1"></label>
           <label>Big blind <input id="c-bb" type="number" min="0.01" step="0.01" value="2"></label>
@@ -36,12 +36,22 @@
       <div class="panel">
         <h2>Join table <span id="j-table"></span></h2>
         <label>Your name <input id="jn-name" maxlength="20"></label>
-        <label>Proposed buy-in stack <input id="jn-stack" type="number" min="0.01" step="0.01" value="1000"></label>
+        <label>Proposed buy-in stack <input id="jn-stack" type="number" min="0.01" step="0.01" placeholder="1000"></label>
         <div class="row2">
           <button id="btn-join" class="primary">Request seat</button>
           <button id="btn-watch">Watch only</button>
         </div>
         <div class="hint">The host must approve your seat request. "Watch only" lets you see the table and chat without sitting — click an empty seat whenever you want to sit down.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="view-closed" class="view" hidden>
+    <div class="landing-wrap">
+      <div class="panel closed-panel">
+        <h2>Table #<span id="closed-id"></span> — closed</h2>
+        <div class="hint">Everyone left the table. Final ledger:</div>
+        <div id="closed-ledger"></div>
       </div>
     </div>
   </div>

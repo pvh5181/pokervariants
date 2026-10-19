@@ -3,9 +3,9 @@ const $ = s => document.querySelector(s);
 const SUITS = { s: '♠', h: '♥', d: '♦', c: '♣' };
 
 const S = {
-  ws: null, id: null, key: null, me: null, st: null, hist: [],
+  ws: null, id: null, key: null, token: null, me: null, st: null, hist: [],
   myName: null, myStack: null, discSel: new Set(), tab: null, reconnect: false,
-  watchMode: false, pendingJoin: null, sitSeat: 0, betMenu: false, betAmt: null, ovMode: null, bbMode: false, sound: true, alertDeadline: 0
+  watchMode: false, pendingJoin: null, sitSeat: 0, betMenu: false, betAmt: null, ovMode: null, bbMode: false, sound: true, alertDeadline: 0, closed: false
 };
 
 let sfxAt = 0;
@@ -33,7 +33,7 @@ for (let i = 0; i < 10; i++) {
 }
 
 function showView(v) {
-  ['landing', 'join', 'table'].forEach(x => { $('#view-' + x).hidden = x !== v; });
+  ['landing', 'join', 'closed', 'table'].forEach(x => { $('#view-' + x).hidden = x !== v; });
 }
 
 function fmt(cents) {
@@ -75,12 +75,16 @@ function miniCardHTML(s) { return cardHTML(s, 'mini'); }
 
 function boot() {
   const m = location.hash.match(/^#\/t\/([A-Za-z0-9]+)(?:\/([A-Za-z0-9]+))?$/);
-  if (m) {
-    S.id = m[1];
-    S.key = sessionStorage.getItem('pv_hostkey_' + m[1]) || null;
-    if (m[2]) location.hash = '#/t/' + S.id;
-    const saved = sessionStorage.getItem('pv_join_' + m[1]);
-    if ((S.pendingJoin && S.pendingJoin.id === m[1]) || S.key) {
+  if (!m) { S.id = null; S.closed = false; showView('landing'); return; }
+  S.closed = false;
+  S.id = m[1];
+  S.key = sessionStorage.getItem('pv_hostkey_' + m[1]) || null;
+  S.token = sessionStorage.getItem('pv_token_' + m[1]) || null;
+  if (m[2]) location.hash = '#/t/' + S.id;
+  const saved = sessionStorage.getItem('pv_join_' + m[1]);
+  const enter = () => {
+    if (S.closed || S.id !== m[1]) return;
+    if ((S.pendingJoin && S.pendingJoin.id === m[1]) || S.key || S.token) {
       if (saved) {
         try {
           const j2 = JSON.parse(saved);
@@ -97,17 +101,42 @@ function boot() {
       $('#j-table').textContent = S.id;
       showView('join');
     }
-  } else {
-    showView('landing');
+  };
+  fetch('/api/table/' + encodeURIComponent(S.id)).then(r => r.ok ? r.json() : null).then(info => {
+    if (S.id !== m[1]) return;
+    if (info && info.closed) showClosed(info);
+    else enter();
+  }).catch(enter);
+}
+
+function showClosed(info) {
+  S.closed = true;
+  S.st = null;
+  if (S.ws) {
+    S.ws.onclose = null;
+    try { S.ws.close(); } catch (e) {}
+    S.ws = null;
   }
+  $('#closed-id').textContent = info.id || S.id || '';
+  const rows = info.ledger || [];
+  $('#closed-ledger').innerHTML = '<table class="led"><tr><th>Player</th><th>Bought in</th><th>Stack</th><th>Won/Lost</th></tr>' +
+    (rows.length ? rows.map(r =>
+      '<tr><td>' + esc(r.name) + (r.seated ? '' : ' (left)') + '</td>' +
+      '<td>' + fmt(r.bought) + '</td><td>' + fmt(r.stack) + '</td>' +
+      '<td class="' + (r.wl >= 0 ? 'pos' : 'neg') + '">' + (r.wl >= 0 ? '+' : '') + fmt(r.wl) + '</td></tr>'
+    ).join('') : '<tr><td colspan="4" class="muted">no ledger entries</td></tr>') +
+    '</table>';
+  showView('closed');
 }
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  S.closed = false;
   S.ws = new WebSocket(proto + '://' + location.host + '/ws/' + S.id + (S.key ? '?k=' + S.key : ''));
   S.ws.onopen = () => {
-    if (S.watchMode) S.ws.send(JSON.stringify({ t: 'watch', name: S.myName || 'guest' }));
-    else S.ws.send(JSON.stringify({ t: 'join', name: S.myName, stack: parseInt(S.myStack) || 100000 }));
+    const tok = sessionStorage.getItem('pv_token_' + S.id) || undefined;
+    if (S.watchMode) S.ws.send(JSON.stringify({ t: 'watch', name: S.myName || 'guest', tok }));
+    else S.ws.send(JSON.stringify({ t: 'join', name: S.myName, stack: parseInt(S.myStack) || 100000, tok }));
   };
   S.ws.onmessage = e => { try { onMsg(JSON.parse(e.data)); } catch (err) {} };
   S.ws.onclose = () => {
@@ -123,11 +152,20 @@ function onMsg(m) {
   switch (m.t) {
     case 'welcome':
       S.me = { id: m.id, host: m.host, table: m.table };
+      if (m.token) {
+        S.token = m.token;
+        sessionStorage.setItem('pv_token_' + m.table, m.token);
+      }
       $('#btn-host').hidden = !m.host;
       break;
     case 'state':
+      if (m.closed) { showClosed(m); break; }
       S.st = m;
       if (S.me && m.me) S.me.host = !!m.me.host;
+      if (m.me && m.me.hostKey) {
+        S.key = m.me.hostKey;
+        sessionStorage.setItem('pv_hostkey_' + m.id, m.me.hostKey);
+      }
       $('#btn-host').hidden = !(S.me && S.me.host);
       render();
       break;
@@ -451,9 +489,9 @@ function renderSeats(st) {
     if (S.bbMode) {
       const bbv = (st.hand && st.hand.bb) || st.settings.bb || 100;
       const v = p.bet / bbv;
-      txt = (Math.abs(v - Math.round(v)) < 0.05 ? Math.round(v) : v.toFixed(1)) + 'bb';
+      txt = v.toFixed(2).replace(/\.?0+$/, '') + 'bb';
     } else {
-      txt = chips >= 1000 ? (chips / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : (Number.isInteger(chips) ? String(chips) : chips.toFixed(1));
+      txt = chips.toFixed(2).replace(/\.?0+$/, '');
     }
     if (el.textContent !== txt) el.textContent = txt;
   });
@@ -892,7 +930,7 @@ function renderInfoTab(st) {
     '<div>Host: ' + esc(host ? host.name : '—') + ' · ' + st.seatedCount + '/' + st.maxPlayers + ' seated</div>' +
     '<div>' + (set.paused ? 'The game is paused' : 'The game is live') + '</div></div>' +
     '<h3>Variants available</h3>' +
-    '<div class="handrow">Hold\'em: No Limit / Pot Limit · Greek · Shortdeck<br>' +
+    '<div class="handrow">Hold\'em: No Limit / Pot Limit · Greek · Pineapple · Irish · Shortdeck · 2-6 cards<br>' +
     'Omaha: No Limit / Pot Limit · Pineapple · Irish · Shortdeck · Hi/Lo · 3-6 cards<br>' +
     'Other: No river · Extra river</div>' +
     '<h3>How to play</h3>' +
@@ -932,14 +970,17 @@ function renderHostTab(st) {
 
   html += '<div id="sec-holdem" ' + (set.game !== 0 ? 'hidden' : '') + '>';
   html += '<h3>Hold\'em</h3>';
-  html += '<div class="optrow"><input type="checkbox" id="f-greek" ' + (set.greek ? 'checked' : '') + '> Greek (must use both cards)</div>';
+  html += '<div class="optrow"><input type="checkbox" id="f-greek" ' + (set.greek ? 'checked' : '') + '> Greek (must use both hole cards)</div>';
   html += '</div>';
 
   html += '<div id="sec-omaha" ' + (set.game !== 1 ? 'hidden' : '') + '>';
   html += '<h3>Omaha</h3>';
+  html += '<div class="optrow"><input type="checkbox" id="f-hilo" ' + (set.hilo ? 'checked' : '') + '> Hi/Lo (8-or-better)</div>';
+  html += '</div>';
+
+  html += '<h3>Discard</h3><div id="sec-discard">';
   html += '<div class="optrow"><input type="checkbox" id="f-pineapple" ' + (set.pineapple ? 'checked' : '') + '> Pineapple (discard after preflop)</div>';
   html += '<div class="optrow"><input type="checkbox" id="f-irish" ' + (set.irish ? 'checked' : '') + '> Irish (discard after flop)</div>';
-  html += '<div class="optrow"><input type="checkbox" id="f-hilo" ' + (set.hilo ? 'checked' : '') + '> Hi/Lo (8-or-better)</div>';
   html += '</div>';
 
   html += '<h3>Deck</h3>';
@@ -967,25 +1008,38 @@ function renderHostTab(st) {
       '<button class="danger small" data-reject="' + r.id + '">Reject</button></div>').join('')
       : '<div class="muted">no pending requests</div>') + '</div>';
 
-  html += '<h3>Players</h3><div id="plist">' +
+  html += '<h3>Players</h3><div class="hint">Positive amounts add chips; negative amounts remove them. “Make host” transfers host permissions.</div><div id="plist">' +
     st.players.filter(p => p.seated).map(p =>
       '<div class="reqrow"><span class="who">' + esc(p.name) + ' — ' + amt(p.stack) + '</span>' +
-      '<input class="numfield" id="ch-' + p.id + '" placeholder="chips" style="width:70px">' +
-      '<button class="small" data-chips="' + p.id + '">Add</button>' +
+      '<input class="numfield" id="ch-' + p.id + '" placeholder="+/- chips" style="width:80px">' +
+      '<button class="small" data-chips="' + p.id + '">Adjust</button>' +
+      (p.host || !p.connected ? '' : '<button class="small" data-host="' + p.id + '">Make host</button>') +
       (p.host ? '' : '<button class="danger small" data-remove="' + p.id + '">Kick</button>') +
       '</div>').join('') + '</div>';
 
   box.innerHTML = html;
 
-  segGroup($('#seg-game'), 'game', [{ label: 'Hold\'em', val: 0 }, { label: 'Omaha', val: 1 }], settings.game, v => { settings.game = v; syncHostForm(settings); });
-  segGroup($('#seg-bet'), 'bet', [{ label: 'No Limit', val: 0 }, { label: 'Pot Limit', val: 1 }], settings.bet, v => { settings.bet = v; });
-  const cardsSel = document.createElement('div');
-  cardsSel.className = 'seg';
-  $('#seg-cards-wrap').appendChild(cardsSel);
-  segGroup(cardsSel, 'cards', [3, 4, 5, 6].map(c => ({ label: c + ' cards', val: c })), settings.cards, v => { settings.cards = v; });
+  function renderCards(s) {
+    const wrap = $('#seg-cards-wrap');
+    const opts = s.game === 0 ? [2, 3, 4, 5, 6] : [3, 4, 5, 6];
+    if (!opts.includes(s.cards)) s.cards = opts[0];
+    wrap.innerHTML = '';
+    const sel = document.createElement('div');
+    sel.className = 'seg';
+    wrap.appendChild(sel);
+    segGroup(sel, 'cards', opts.map(c => ({ label: c + ' cards', val: c })), s.cards, v => {
+      s.cards = v;
+      syncHostForm(s);
+    });
+  }
 
   function syncHostForm(s) {
+    if (s.game === 1 && s.cards < 3) s.cards = 3;
+    if (s.cards < 3) { s.pineapple = false; s.irish = false; }
+    if (s.game === 0) s.hilo = false;
+    if (s.cards !== 2) s.greek = false;
     $('#f-greek').checked = s.greek;
+    $('#f-greek').disabled = s.cards !== 2;
     $('#f-pineapple').checked = s.pineapple;
     $('#f-irish').checked = s.irish;
     $('#f-shortdeck').checked = s.shortdeck;
@@ -995,16 +1049,41 @@ function renderHostTab(st) {
     $('#f-runtwice').checked = s.runTwice;
     $('#f-revealallin').checked = s.revealAllIn;
     $('#f-straddle').checked = s.straddle;
-    $('#seg-cards-wrap').hidden = s.game === 0;
+    $('#sec-discard').hidden = s.cards < 3;
     $('#sec-holdem').hidden = s.game !== 0;
     $('#sec-omaha').hidden = s.game !== 1;
     $('#row-game27').hidden = s.game !== 0;
   }
 
-  $('#f-pineapple').onchange = () => { settings.pineapple = $('#f-pineapple').checked; if (settings.pineapple) $('#f-irish').checked = false; };
-  $('#f-irish').onchange = () => { settings.irish = $('#f-irish').checked; if (settings.irish) $('#f-pineapple').checked = false; };
-  $('#f-noriver').onchange = () => { settings.noRiver = $('#f-noriver').checked; if (settings.noRiver) $('#f-extrariver').checked = false; };
-  $('#f-extrariver').onchange = () => { settings.extraRiver = $('#f-extrariver').checked; if (settings.extraRiver) $('#f-noriver').checked = false; };
+  segGroup($('#seg-game'), 'game', [{ label: 'Hold\'em', val: 0 }, { label: 'Omaha', val: 1 }], settings.game, v => {
+    settings.game = v;
+    renderCards(settings);
+    syncHostForm(settings);
+  });
+  segGroup($('#seg-bet'), 'bet', [{ label: 'No Limit', val: 0 }, { label: 'Pot Limit', val: 1 }], settings.bet, v => { settings.bet = v; });
+  renderCards(settings);
+  syncHostForm(settings);
+
+  $('#f-pineapple').onchange = () => {
+    settings.pineapple = $('#f-pineapple').checked;
+    if (settings.pineapple) settings.irish = false;
+    $('#f-irish').checked = settings.irish;
+  };
+  $('#f-irish').onchange = () => {
+    settings.irish = $('#f-irish').checked;
+    if (settings.irish) settings.pineapple = false;
+    $('#f-pineapple').checked = settings.pineapple;
+  };
+  $('#f-noriver').onchange = () => {
+    settings.noRiver = $('#f-noriver').checked;
+    if (settings.noRiver) settings.extraRiver = false;
+    $('#f-extrariver').checked = settings.extraRiver;
+  };
+  $('#f-extrariver').onchange = () => {
+    settings.extraRiver = $('#f-extrariver').checked;
+    if (settings.extraRiver) settings.noRiver = false;
+    $('#f-noriver').checked = settings.noRiver;
+  };
 
   $('#f-apply').onclick = () => {
     send({
@@ -1046,12 +1125,14 @@ function renderHostTab(st) {
   box.querySelectorAll('[data-reject]').forEach(b => b.onclick = () => send({ t: 'reject', id: parseInt(b.dataset.reject) }));
   box.querySelectorAll('[data-chips]').forEach(b => b.onclick = () => {
     const amt = toCents($('#ch-' + b.dataset.chips).value);
-    if (!amt || amt <= 0) return;
+    if (!amt) return;
     send({ t: 'chips', id: parseInt(b.dataset.chips), amt });
+  });
+  box.querySelectorAll('[data-host]').forEach(b => b.onclick = () => {
+    if (confirm('Transfer host permissions to this player?')) send({ t: 'transfer', id: parseInt(b.dataset.host) });
   });
   box.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => send({ t: 'remove', id: parseInt(b.dataset.remove) }));
 
-  $('#seg-cards-wrap').hidden = settings.game === 0;
   $('#row-game27').hidden = settings.game !== 0;
 }
 
@@ -1089,10 +1170,11 @@ function renderHistory() {
 function bindUI() {
   $('#btn-create').onclick = () => {
     const name = $('#c-name').value.trim();
-    const stack = toCents($('#c-stack').value) || 200000;
+    const stack = toCents($('#c-stack').value);
     const sb = toCents($('#c-sb').value) || 100;
     const bb = toCents($('#c-bb').value) || 200;
     if (!name) { toast('enter a name'); return; }
+    if (stack <= 0) { toast('enter a starting stack'); return; }
     fetch('/api/new').then(r => r.json()).then(j => {
       S.myName = name; S.myStack = stack;
       sessionStorage.setItem('pv_join_' + j.id, JSON.stringify({ name, stack, sb, bb }));
@@ -1111,11 +1193,12 @@ function bindUI() {
 
   $('#btn-join').onclick = () => {
     const name = $('#jn-name').value.trim();
-    const stack = toCents($('#jn-stack').value) || 100000;
+    const stack = toCents($('#jn-stack').value);
     if (!name) { toast('enter a name'); return; }
+    if (stack <= 0) { toast('enter a buy-in stack'); return; }
     S.myName = name; S.myStack = stack;
     S.watchMode = false;
-    if (S.key) sessionStorage.setItem('pv_join_' + S.id, JSON.stringify({ name, stack }));
+    sessionStorage.setItem('pv_join_' + S.id, JSON.stringify({ name, stack }));
     showView('table');
     connect();
   };

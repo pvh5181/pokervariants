@@ -41,6 +41,7 @@ struct Settings {
 struct Player {
   int id = 0;
   std::string name;
+  std::string token;
   Conn* conn = nullptr;
   bool host = false;
   bool seated = false;
@@ -55,6 +56,7 @@ struct Player {
   bool showChoice = false;
   bool sittingOut = false;
   int wonHands = 0;
+  bool wonThisHand = false;
 };
 
 struct Pending {
@@ -71,15 +73,19 @@ public:
   Table(const std::string& tableId, const std::string& hostKey, Net* net);
   Player* addPlayer(Conn* c);
   Player* reattachHost(Conn* c);
+  Player* reattachToken(Conn* c, const std::string& token);
   void onDisconnect(Conn* c, int playerId);
   void handleMsg(Conn* c, int playerId, const J::Ptr& m);
   void tick(int64_t now);
+  J::Ptr statusJson() const;
 
   std::string id;
   std::string hostKey;
   Settings st;
   bool pendingSettingsValid = false;
   Settings pendingSettings;
+  bool closed = false;
+  int64_t closedAt = 0;
 
 private:
   Net* net;
@@ -114,10 +120,18 @@ private:
   std::vector<Card> deckCards;
   std::deque<J::Ptr> history;
   std::deque<J::Ptr> chatRec;
+  int64_t emptySince = 0;
 
   Player* getP(int id);
   Player* bySeat(int s);
   int seatedCount() const;
+  int connectedCount() const;
+  bool hasHost() const;
+  Player* randomOnlinePlayer(Player* exclude);
+  void makeHost(Player* target, Player* by);
+  void electNewHost();
+  void closeTable(int64_t now);
+  void settleHostPresence();
   std::vector<Player*> seatsInOrder(int fromSeat, const std::function<bool(Player*)>& pred);
   std::vector<Player*> inHandOrder();
   std::vector<Player*> nonFolded();
@@ -128,6 +142,7 @@ private:
 
   void sendState();
   J::Ptr stateJson(int forId);
+  J::Ptr ledgerJson() const;
   void broadcast(const std::string& s);
   void sendTo(Player* p, const std::string& s);
   void sysMsg(const std::string& m);

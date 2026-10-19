@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-import sys, json, time
+import sys, time
 sys.path.insert(0, '/home/p/Desktop/dev/poker/pokervariants/test')
-from test2 import Table, WS, new_table
+from test2 import WS, new_table
 
 
 def wait_state(ws, pred, timeout=10):
@@ -17,47 +17,52 @@ def main():
     info = new_table()
     tid, hk = info["id"], info["hostKey"]
 
-    h1 = WS("/ws/%s?k=%s" % (tid, hk))
-    h1.send({"t": "join", "name": "Host", "stack": 5000})
-    w1 = h1.recv()
+    host = WS("/ws/%s?k=%s" % (tid, hk))
+    host.send({"t": "join", "name": "Host", "stack": 5000})
+    w1 = host.recv()
     assert w1["t"] == "welcome" and w1["host"]
-    pid = w1["id"]
-    wait_state(h1, lambda s: s["seatedCount"] == 1)
+    pid, token = w1["id"], w1["token"]
+    wait_state(host, lambda s: s["seatedCount"] == 1)
     print("host seated, player id", pid)
 
-    g1 = WS("/ws/%s" % tid)
-    g1.send({"t": "join", "name": "G0", "stack": 3000})
-    g1.recv()
-    wait_state(h1, lambda s: len(s["pending"]) == 1)
+    guest = WS("/ws/%s" % tid)
+    guest.send({"t": "join", "name": "G0", "stack": 3000})
+    guest.recv()
+    wait_state(host, lambda s: len(s["pending"]) == 1)
     print("guest pending ok")
 
-    h1.s.close()
-    time.sleep(0.5)
-    print("host 'refreshed' (old socket closed)")
+    host.s.close()
+    st = wait_state(guest, lambda s: s.get("me", {}).get("host") and len([p for p in s["players"] if p["host"]]) == 1)
+    hosts = [p for p in st["players"] if p["host"]]
+    assert len(hosts) == 1 and hosts[0]["id"] == 2, "online guest should become host"
+    assert st["me"]["host"] and st["me"].get("hostKey")
+    print("host transferred to online guest")
 
-    h2 = WS("/ws/%s?k=%s" % (tid, hk))
-    h2.send({"t": "join", "name": "Host", "stack": 5000})
+    h2 = WS("/ws/%s" % tid)
+    h2.send({"t": "join", "name": "Host", "stack": 5000, "tok": token})
     w2 = h2.recv()
     assert w2["t"] == "welcome", w2
-    assert w2["id"] == pid, "reattach should reuse player id %d, got %d" % (pid, w2["id"])
-    assert w2["host"], "reattached conn must be host"
-    st = wait_state(h2, lambda s: s["seatedCount"] == 1 and len(s["pending"]) == 1)
-    assert st["seatedCount"] == 1, "host must still occupy exactly one seat, got %d" % st["seatedCount"]
-    hosts = [p for p in st["players"] if p["host"]]
-    assert len(hosts) == 1 and hosts[0]["seated"]
-    print("host reattached to same player, still one seat")
+    assert w2["id"] == pid, "token should reattach the old host player"
+    assert not w2["host"], "transferred host must not regain host powers"
+    st = wait_state(h2, lambda s: s.get("me", {}).get("id") == pid)
+    assert len([p for p in st["players"] if p["host"]]) == 1
+    print("old host reattached by token without host powers")
 
-    h2.send({"t": "approve", "id": st["pending"][0]["id"]})
-    st = wait_state(h2, lambda s: s["seatedCount"] == 2)
-    assert st["seatedCount"] == 2
-    print("guest approved, 2 players seated, no duplicate host")
-
-    host_by_id = [p for p in st["players"] if p["id"] == pid][0]
-    assert host_by_id["name"] == "Host" and host_by_id["seat"] >= 0
-
-    h2.send({"t": "set", "paused": True})
-    time.sleep(0.3)
-    print("HOST REATTACH TEST PASSED")
+    info = new_table()
+    tid2, hk2 = info["id"], info["hostKey"]
+    h = WS("/ws/%s?k=%s" % (tid2, hk2))
+    h.send({"t": "join", "name": "Solo", "stack": 2000})
+    w = h.recv()
+    solo_id = w["id"]
+    wait_state(h, lambda s: s["seatedCount"] == 1)
+    h.s.close()
+    time.sleep(0.5)
+    h2 = WS("/ws/%s?k=%s" % (tid2, hk2))
+    h2.send({"t": "join", "name": "Solo", "stack": 2000})
+    w = h2.recv()
+    assert w["t"] == "welcome" and w["id"] == solo_id and w["host"]
+    print("host key reattaches when no other user is online")
+    print("HOST RECONNECT TESTS PASSED")
 
 
 if __name__ == "__main__":

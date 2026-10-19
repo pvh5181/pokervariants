@@ -60,6 +60,16 @@ static bool onHttp(Conn& c) {
     net.respond(&c, 405, "text/plain", "method not allowed");
     return false;
   }
+  if (p.rfind("/api/table/", 0) == 0) {
+    std::string id = p.substr(11);
+    auto it = tables.find(id);
+    if (it == tables.end()) {
+      net.respond(&c, 404, "text/plain", "no such table");
+      return false;
+    }
+    net.respond(&c, 200, "application/json", J::dump(it->second->statusJson()));
+    return false;
+  }
   if (p == "/api/new") {
     std::string id = randHex(5);
     std::string key = randHex(16);
@@ -75,6 +85,10 @@ static bool onHttp(Conn& c) {
     auto it = tables.find(id);
     if (it == tables.end()) {
       net.respond(&c, 404, "text/plain", "no such table");
+      return false;
+    }
+    if (it->second->closed) {
+      net.respond(&c, 410, "text/plain", "table closed");
       return false;
     }
     auto q = parseQuery(c.query);
@@ -105,7 +119,9 @@ static void onMsg(Conn& c, const std::string& m) {
       net.sendText(&c, R"({"t":"err","m":"first message must be join or watch"})");
       return;
     }
-    Player* p = c.isHostConn ? t->reattachHost(&c) : nullptr;
+    std::string tok = J::gs(j, "tok");
+    Player* p = t->reattachToken(&c, tok);
+    if (!p && c.isHostConn) p = t->reattachHost(&c);
     if (!p) p = t->addPlayer(&c);
     c.playerId = p->id;
     auto w = J::obj();
@@ -113,6 +129,7 @@ static void onMsg(Conn& c, const std::string& m) {
     w->o["id"] = J::number(p->id);
     w->o["host"] = J::boolean(p->host);
     w->o["table"] = J::str(t->id);
+    w->o["token"] = J::str(p->token);
     net.sendText(&c, J::dump(w));
   }
   t->handleMsg(&c, c.playerId, j);
@@ -125,7 +142,14 @@ static void onClose(Conn& c) {
 
 static void onTick() {
   int64_t now = nowMs();
-  for (auto& kv : tables) kv.second->tick(now);
+  for (auto it = tables.begin(); it != tables.end();) {
+    it->second->tick(now);
+    if (it->second->closed && now - it->second->closedAt > 24LL * 3600 * 1000) {
+      it = tables.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 int main(int argc, char** argv) {

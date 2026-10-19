@@ -82,8 +82,13 @@ void Settings::sanitize() {
   if (bb < sb) bb = sb;
   if (sec < 5) sec = 5;
   if (sec > 300) sec = 300;
-  if (game == 0) { cards = 2; hilo = false; }
-  else {
+  if (game == 0) {
+    if (cards < 2) cards = 2;
+    if (cards > 6) cards = 6;
+    hilo = false;
+    if (cards != 2) greek = false;
+    if (cards < 3) { pineapple = false; irish = false; }
+  } else {
     if (cards < 3) cards = 3;
     if (cards > 6) cards = 6;
     greek = false;
@@ -97,7 +102,7 @@ int Settings::maxPlayers() const {
   int deck = shortdeck ? 36 : 52;
   int reserve = boardCards();
   if (reserve < 5) reserve = 5;
-  int per = game == 0 ? 2 : cards;
+  int per = cards;
   int m = (deck - reserve) / per;
   if (m < 2) m = 2;
   if (m > 10) m = 10;
@@ -108,7 +113,10 @@ std::string Settings::variant() const {
   std::string s = game == 0 ? "Hold'em" : "Omaha";
   s += bet == 0 ? " NL" : " PL";
   if (game == 0) {
+    if (cards > 2) s += " " + std::to_string(cards) + "-card";
     if (greek) s += " Greek";
+    if (pineapple) s += " Pineapple";
+    if (irish) s += " Irish";
   } else {
     s += " " + std::to_string(cards) + "-card";
     if (pineapple) s += " Pineapple";
@@ -169,6 +177,69 @@ int Table::seatedCount() const {
   int n = 0;
   for (auto& p : players) if (p->seated) n++;
   return n;
+}
+
+int Table::connectedCount() const {
+  int n = 0;
+  for (auto& p : players) if (p->conn) n++;
+  return n;
+}
+
+bool Table::hasHost() const {
+  for (auto& p : players) if (p->host) return true;
+  return false;
+}
+
+Player* Table::randomOnlinePlayer(Player* exclude) {
+  std::vector<Player*> seated, online;
+  for (auto& p : players) {
+    if (!p->conn || p.get() == exclude) continue;
+    online.push_back(p.get());
+    if (p->seated) seated.push_back(p.get());
+  }
+  std::vector<Player*>& pool = seated.empty() ? online : seated;
+  if (pool.empty()) return nullptr;
+  std::uniform_int_distribution<size_t> dist(0, pool.size() - 1);
+  return pool[dist(rng)];
+}
+
+void Table::makeHost(Player* target, Player* by) {
+  if (!target || !target->conn || target->host) return;
+  for (auto& p : players) p->host = false;
+  target->host = true;
+  hostKey = randHex(16);
+  if (by) sysMsg(by->name + " transferred host to " + target->name);
+  else sysMsg(target->name + " is now the host");
+  sendState();
+}
+
+void Table::electNewHost() {
+  if (closed) return;
+  Player* target = randomOnlinePlayer(nullptr);
+  if (target) makeHost(target, nullptr);
+}
+
+void Table::settleHostPresence() {
+  if (closed) return;
+  for (auto& p : players) if (p->host && p->conn) return;
+  electNewHost();
+}
+
+void Table::closeTable(int64_t now) {
+  closed = true;
+  closedAt = now;
+  emptySince = 0;
+  st.paused = true;
+  pending.clear();
+  handActive = false;
+  phase = 5;
+  toActId = 0;
+  turnDeadline = 0;
+  nextDealAt = 0;
+  revealAt = 0;
+  equities.clear();
+  dq.clear();
+  dqIdx = 0;
 }
 
 std::vector<Player*> Table::seatsInOrder(int fromSeat, const std::function<bool(Player*)>& pred) {
@@ -253,7 +324,8 @@ Player* Table::addPlayer(Conn* c) {
   auto p = std::make_unique<Player>();
   p->id = (int)players.size() + 1;
   p->conn = c;
-  p->host = c->isHostConn;
+  p->token = randHex(16);
+  p->host = c->isHostConn && !hasHost();
   Player* raw = p.get();
   players.push_back(std::move(p));
   return raw;
@@ -261,7 +333,18 @@ Player* Table::addPlayer(Conn* c) {
 
 Player* Table::reattachHost(Conn* c) {
   for (auto& p : players) {
-    if (p->host) {
+    if (p->host && !p->conn) {
+      p->conn = c;
+      return p.get();
+    }
+  }
+  return nullptr;
+}
+
+Player* Table::reattachToken(Conn* c, const std::string& token) {
+  if (token.empty()) return nullptr;
+  for (auto& p : players) {
+    if (p->token == token && !p->conn) {
       p->conn = c;
       return p.get();
     }
@@ -274,6 +357,7 @@ void Table::onDisconnect(Conn* c, int playerId) {
   if (!p) return;
   if (p->conn != c) return;
   p->conn = nullptr;
+  settleHostPresence();
   if (p->r2Asked && !p->r2Answered) {
     p->r2Answered = true;
     p->r2Ans = false;
@@ -379,6 +463,7 @@ void Table::dealHand() {
     p->streetBet = 0; p->totalComm = 0; p->hole.clear();
     p->r2Asked = false; p->r2Answered = false; p->r2Ans = false;
     p->showChoice = false;
+    p->wonThisHand = false;
   }
   for (Player* p : elig) {
     p->inHand = true;
@@ -414,7 +499,7 @@ void Table::startHandDeal() {
   deckCards = d.cs;
   std::vector<Player*> elig;
   for (auto& p : players) if (p->inHand) elig.push_back(p.get());
-  int nh = handSt.game == 0 ? 2 : handSt.cards;
+  int nh = handSt.cards;
   int ti = 0;
   for (Player* p : elig) {
     for (int i = 0; i < nh; i++) {
@@ -845,7 +930,11 @@ void Table::showdown() {
     prev = level;
   }
   for (auto& p : players) if (p->inHand) p->stack += win[p->id];
-  for (auto& p : players) if (p->inHand && win[p->id] > 0) { sfx("win", 0, p.get()); p->wonHands++; }
+  for (auto& p : players) if (p->inHand && win[p->id] > 0) {
+    sfx("win", 0, p.get());
+    p->wonHands++;
+    p->wonThisHand = true;
+  }
   applySideGames(win);
   auto sumPlayers = J::arr();
   for (auto& p : players) {
@@ -1025,12 +1114,22 @@ void Table::endHand() {
   sendState();
   if (gVerbose) {
     printf("  stacks:");
-    for (auto& p : players) if (p->seated) printf(" %s=%s", p->name.c_str(), chipsStr(p->stack).c_str());
+    for (auto& p : players) {
+      if (!p->seated) continue;
+      printf(" %s=%s%s", p->name.c_str(), chipsStr(p->stack).c_str(), p->wonThisHand ? "*" : "");
+    }
     printf("\n\n");
   }
 }
 
 void Table::tick(int64_t now) {
+  if (closed) return;
+  if (connectedCount() == 0) {
+    if (emptySince == 0) emptySince = now;
+    else if (!handActive && now - emptySince >= 60000) { closeTable(now); return; }
+  } else {
+    emptySince = 0;
+  }
   if (phase == 6) {
     if (now > turnDeadline) {
       Player* p = getP(toActId);
@@ -1097,6 +1196,7 @@ J::Ptr Table::stateJson(int forId) {
   auto j = J::obj();
   j->o["t"] = J::str("state");
   j->o["id"] = J::str(id);
+  j->o["closed"] = J::boolean(closed);
   int hostId = 0;
   for (auto& p : players) if (p->host) hostId = p->id;
   j->o["host"] = J::number(hostId);
@@ -1208,20 +1308,7 @@ J::Ptr Table::stateJson(int forId) {
   }
   j->o["turns"] = turns;
 
-  auto led = J::arr();
-  for (auto& p : players) {
-    if (p->boughtIn <= 0 && !p->seated) continue;
-    auto e = J::obj();
-    e->o["id"] = J::number(p->id);
-    e->o["name"] = J::str(p->name);
-    e->o["bought"] = J::number(p->boughtIn);
-    e->o["stack"] = J::number(p->stack);
-    e->o["wl"] = J::number(p->stack - p->boughtIn);
-    e->o["seated"] = J::boolean(p->seated);
-    e->o["connected"] = J::boolean(p->conn != nullptr);
-    led->a.push_back(e);
-  }
-  j->o["ledger"] = led;
+  j->o["ledger"] = ledgerJson();
 
   auto ch = J::arr();
   for (auto& c : chatRec) ch->a.push_back(c);
@@ -1232,6 +1319,7 @@ J::Ptr Table::stateJson(int forId) {
     m->o["id"] = J::number(me->id);
     m->o["name"] = J::str(me->name);
     m->o["host"] = J::boolean(me->host);
+    if (me->host) m->o["hostKey"] = J::str(hostKey);
     m->o["seated"] = J::boolean(me->seated);
     m->o["seat"] = J::number(me->seat);
     m->o["stack"] = J::number(me->stack);
@@ -1281,6 +1369,31 @@ J::Ptr Table::stateJson(int forId) {
   return j;
 }
 
+J::Ptr Table::ledgerJson() const {
+  auto led = J::arr();
+  for (auto& p : players) {
+    if (p->boughtIn <= 0 && !p->seated) continue;
+    auto e = J::obj();
+    e->o["id"] = J::number(p->id);
+    e->o["name"] = J::str(p->name);
+    e->o["bought"] = J::number(p->boughtIn);
+    e->o["stack"] = J::number(p->stack);
+    e->o["wl"] = J::number(p->stack - p->boughtIn);
+    e->o["seated"] = J::boolean(p->seated);
+    e->o["connected"] = J::boolean(p->conn != nullptr);
+    led->a.push_back(e);
+  }
+  return led;
+}
+
+J::Ptr Table::statusJson() const {
+  auto j = J::obj();
+  j->o["id"] = J::str(id);
+  j->o["closed"] = J::boolean(closed);
+  j->o["ledger"] = ledgerJson();
+  return j;
+}
+
 void Table::sendState() {
   for (auto& p : players) {
     if (p->conn) net->sendText(p->conn, J::dump(stateJson(p->id)));
@@ -1298,6 +1411,7 @@ void Table::handleMsg(Conn* c, int playerId, const J::Ptr& m) {
     if (name.empty()) { errTo(p, "name required"); return; }
     if (stack <= 0) stack = st.bb * 100;
     p->name = name;
+    settleHostPresence();
     if (p->seated) { sendState(); return; }
     for (auto it = pending.begin(); it != pending.end();) {
       if (it->playerId == p->id) it = pending.erase(it);
@@ -1325,6 +1439,7 @@ void Table::handleMsg(Conn* c, int playerId, const J::Ptr& m) {
     std::string name = J::gs(m, "name");
     if (name.empty()) name = "guest" + std::to_string(p->id);
     p->name = name;
+    settleHostPresence();
     if (p->host && !p->seated) seat(p, st.bb * 100);
     sendState();
     return;
@@ -1482,14 +1597,29 @@ void Table::handleMsg(Conn* c, int playerId, const J::Ptr& m) {
     if (!handActive) maybeDeal();
     return;
   }
+  if (t == "transfer") {
+    if (!p->host) { errTo(p, "host only"); return; }
+    Player* target = getP(J::gi(m, "id"));
+    if (!target || target == p || !target->conn) { errTo(p, "target must be online"); return; }
+    makeHost(target, p);
+    return;
+  }
   if (t == "chips") {
     if (!p->host) { errTo(p, "host only"); return; }
     Player* target = getP(J::gi(m, "id"));
     int amt = J::gi(m, "amt");
-    if (!target || !target->seated || amt <= 0) { errTo(p, "bad request"); return; }
-    target->stack += amt;
-    target->boughtIn += amt;
-    sysMsg(p->name + " added " + chipsStr(amt) + " chips to " + target->name);
+    if (!target || !target->seated || amt == 0) { errTo(p, "bad request"); return; }
+    if (amt < 0) {
+      if (target->inHand) { errTo(p, "cannot remove chips during a hand"); return; }
+      if (target->stack + amt < 0) { errTo(p, "not enough chips"); return; }
+      target->stack += amt;
+      target->boughtIn = std::max(0, target->boughtIn + amt);
+      sysMsg(p->name + " removed " + chipsStr(-amt) + " chips from " + target->name);
+    } else {
+      target->stack += amt;
+      target->boughtIn += amt;
+      sysMsg(p->name + " added " + chipsStr(amt) + " chips to " + target->name);
+    }
     sendState();
     return;
   }

@@ -655,3 +655,6 @@ table.led .neg { color: #d97a7a; }
   .card { width: 34px; height: 46px; font-size: 12px; }
   .card .rs { font-size: 13px; }
 }
+
+.closed-panel { width: min(92vw, 560px); }
+#closed-ledger { overflow-x: auto; }

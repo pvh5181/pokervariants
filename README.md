@@ -29,9 +29,15 @@ Let's Encrypt TLS. Namecheap shared hosting cannot run this backend.
    request it.
 3. **Play** — every table starts paused; the host starts the game with the pause/play button
    (⏸/▶) in the top bar. Hands run automatically from then on.
+4. **Host hand-off** — the host can transfer host permissions from the host panel. If the host
+   disconnects, a random online player becomes host. Exactly one player is host.
+5. **Table lifecycle** — if nobody is connected for 60 seconds, the table closes. Its link then
+   shows only the table ID and the final ledger. Closed tables are removed from memory after
+   24 hours.
 
 There are no accounts and no persistence: tables, ledgers and hand history live in server memory
-for the lifetime of the table.
+for the lifetime of the table. Player and host resume tokens are kept in the browser's session
+storage so refreshes can reattach without creating duplicate players.
 
 ## Host powers
 
@@ -42,14 +48,22 @@ for the lifetime of the table.
   bank (starts at 60s, +15s per hand, capped at 120s). When the main clock expires the bank
   takes over; when the bank is empty the player is folded.
 - Approve / reject seat requests (name + proposed stack size) and rebuy requests
-- Add chips to any player's balance, remove players from the table
+- Add chips to a player's balance, or enter a negative amount to remove chips
+- Transfer host permissions to another player; only one host exists at a time
+- Remove players from the table
 
 ## Game variants
 
-Hold'em:
+Hold'em (with a 2/3/4/5/6-card toggle):
 - No Limit / Pot Limit bet sizing
-- Greek: standard hold'em, but both hole cards must be used at showdown
+- Pineapple: discard down to two hole cards after preflop betting, before the flop
+- Irish: discard down to two hole cards after flop betting, before the turn
+- Greek: standard two-card hold'em, but both hole cards must be used at showdown
+  (unavailable when more than two hole cards are selected)
 - Shortdeck: 2-5 removed from the deck; a flush beats a full house
+
+With more than two Hold'em hole cards and no discard variant, the best five-card hand from all
+hole and board cards is used.
 
 Omaha (with a 3/4/5/6-card toggle):
 - No Limit / Pot Limit bet sizing
@@ -88,6 +102,8 @@ showdown, and spectators see the same information as players.
   showdown while unused cards fade
 - Bet menu with slider, typed input and Min / ½ Pot / ¾ Pot / All-in quick buttons
 - Live hand-rank display (e.g. "Two Pair (A, 5)") in the bottom-right corner
+- Two-decimal bet-chip amounts (e.g. `3.75`, not `3.8`)
+- Closed-table page showing the table ID and final ledger after everyone goes offline
 
 ## Layout
 
@@ -108,6 +124,8 @@ test/
                shortdeck, side pots
   test3.py     cross-checks showdown winners against an independent
                Python hand evaluator for every variant
+  test8.py     hold'em multi-card/discard variants, host transfer, negative chips
+  test9.py     host disconnect election and closed-table ledger
 deploy/
   pokervariants.service           systemd unit
   nginx-pokervariants.conf        Nginx WebSocket reverse proxy
@@ -116,8 +134,11 @@ DEPLOY.md                         Namecheap VPS deployment guide
 
 ## Protocol
 
-Clients connect to `ws://host/ws/<tableId>` (the host appends `?k=<hostKey>` and is the only one
-granted host powers). Messages are JSON: the client sends `join`, `act`, `discard`, `chat`,
-`set` (host), `approve`/`reject` (host), `chips` (host), `remove` (host), `rebuy`, `stand`,
-`run2`, `hist`; the server sends `welcome`, `state` (full snapshot incl. your hole cards and
-action bounds), `chat`, `hand` (finished-hand summary), `history`, `err`.
+Clients connect to `ws://host/ws/<tableId>` (the creator appends `?k=<hostKey>`). Every welcome
+message contains a per-player resume token; sending it back on reconnect reattaches the same
+player. Messages are JSON: the client sends `join`, `watch`, `act`, `discard`, `chat`,
+`set` (host), `approve`/`reject` (host), `chips` (host, positive or negative), `transfer` (host),
+`remove` (host), `rebuy`, `stand`, `run2`, `hist`; the server sends `welcome`, `state` (full
+snapshot incl. your hole cards and action bounds), `chat`, `hand` (finished-hand summary),
+`history`, `err`. `GET /api/table/<id>` returns the table ID, closed flag and ledger, which the
+frontend uses to render a closed table without joining it.
