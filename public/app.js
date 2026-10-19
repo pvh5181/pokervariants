@@ -901,6 +901,7 @@ function renderChatLog() {
 function openPanel(tab) {
   $('#sidepanel').hidden = false;
   S.tab = tab;
+  $('#sidepanel').classList.toggle('host-wide', tab === 'host' && !!(S.me && S.me.host));
   document.querySelectorAll('.tabbtn').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   ['host', 'info', 'ledger', 'history'].forEach(t => { $('#tab-' + t).hidden = t !== tab; });
   renderSide(S.st);
@@ -912,6 +913,7 @@ function renderSide(st) {
   if (!st || $('#sidepanel').hidden) return;
   const isHost = !!(S.me && S.me.host);
   if (S.tab === 'host' && !isHost) S.tab = 'info';
+  $('#sidepanel').classList.toggle('host-wide', S.tab === 'host' && isHost);
   if (S.tab === 'info') renderInfoTab(st);
   if (S.tab === 'host' && isHost) renderHostTab(st);
   if (S.tab === 'ledger') renderLedger(st);

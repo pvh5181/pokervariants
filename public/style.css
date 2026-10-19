@@ -484,6 +484,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   z-index: 40;
   overflow: hidden;
 }
+#sidepanel.host-wide { width: min(700px, calc(100vw - 20px)); }
 .tabs { display: flex; border-bottom: 1px solid #22384a; }
 .tabbtn { flex: 1; border: none; border-radius: 0; background: transparent; color: #9fb4bf; padding: 9px 0; }
 .tabbtn.on { background: #1a3240; color: #ffd75e; font-weight: 700; }
@@ -504,7 +505,15 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   padding: 8px 10px;
   font-size: 13px;
 }
-.reqrow .who { flex: 1; }
+.reqrow .who {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reqrow .numfield, .reqrow button { flex-shrink: 0; }
+.reqrow button { white-space: nowrap; }
 table.led { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.led th { color: #7fb3cc; text-align: left; padding: 3px 6px; border-bottom: 1px solid #22384a; }
 table.led td { padding: 4px 6px; border-bottom: 1px solid #162a35; }
