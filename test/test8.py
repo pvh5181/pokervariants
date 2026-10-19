@@ -80,11 +80,51 @@ def scenario_negative_chips():
     print("ok removed 5.00, ledger adjusted")
 
 
+def scenario_set_stack():
+    print("== host sets stack ==")
+    t = Table(1)
+    t.drain()
+    t.host().send({"t": "setstack", "id": 2, "amt": 12345})
+    states = capture_states(t)
+    guest = [p for p in states[0]["players"] if p["id"] == 2][0]
+    assert guest["stack"] == 12345, guest
+    row = [r for r in states[0]["ledger"] if r["id"] == 2][0]
+    assert row["stack"] == 12345 and row["bought"] == 12345, row
+    print("ok stack set to 123.45")
+
+
+def scenario_move_seat():
+    print("== players can move to empty seats ==")
+    t = Table(1)
+    t.drain()
+    t.clients[1].send({"t": "move", "seat": 7})
+    states = capture_states(t)
+    guest = [p for p in states[1]["players"] if p["id"] == 2][0]
+    assert guest["seat"] == 7, guest
+    print("ok moved to seat 8")
+
+
+def scenario_host_stand_transfer():
+    print("== host leaving seat transfers host ==")
+    t = Table(1)
+    t.drain()
+    t.host().send({"t": "stand"})
+    states = capture_states(t, timeout=4)
+    assert states[1]["me"]["host"], "guest should become host"
+    assert not states[0]["me"]["host"], "old host should lose host"
+    hosts = [p for p in states[0]["players"] if p["host"]]
+    assert len(hosts) == 1 and hosts[0]["id"] == 2, hosts
+    print("ok stand hand-off")
+
+
 def main():
     scenario_holdem_cards()
     scenario_greek_cards_guard()
     scenario_host_transfer()
     scenario_negative_chips()
+    scenario_set_stack()
+    scenario_move_seat()
+    scenario_host_stand_transfer()
     print("ALL NEW FEATURE TESTS PASSED")
 
 

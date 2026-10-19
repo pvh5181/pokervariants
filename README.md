@@ -30,7 +30,8 @@ Let's Encrypt TLS. Namecheap shared hosting cannot run this backend.
 3. **Play** — every table starts paused; the host starts the game with the pause/play button
    (⏸/▶) in the top bar. Hands run automatically from then on.
 4. **Host hand-off** — the host can transfer host permissions from the host panel. If the host
-   disconnects, a random online player becomes host. Exactly one player is host.
+   leaves their seat or disconnects, a random online player becomes host. Exactly one player is
+   host.
 5. **Table lifecycle** — if nobody is connected for 60 seconds, the table closes. Its link then
    shows only the table ID and the final ledger. Closed tables are removed from memory after
    24 hours.
@@ -49,6 +50,7 @@ storage so refreshes can reattach without creating duplicate players.
   takes over; when the bank is empty the player is folded.
 - Approve / reject seat requests (name + proposed stack size) and rebuy requests
 - Add chips to a player's balance, or enter a negative amount to remove chips
+- Set a player's stack to an exact amount
 - Transfer host permissions to another player; only one host exists at a time
 - Remove players from the table
 
@@ -104,6 +106,7 @@ showdown, and spectators see the same information as players.
 - Live hand-rank display (e.g. "Two Pair (A, 5)") in the bottom-right corner
 - Two-decimal bet-chip amounts (e.g. `3.75`, not `3.8`)
 - Closed-table page showing the table ID and final ledger after everyone goes offline
+- Players can move between empty seats when not in a hand
 
 ## Layout
 
@@ -137,8 +140,9 @@ DEPLOY.md                         Namecheap VPS deployment guide
 Clients connect to `ws://host/ws/<tableId>` (the creator appends `?k=<hostKey>`). Every welcome
 message contains a per-player resume token; sending it back on reconnect reattaches the same
 player. Messages are JSON: the client sends `join`, `watch`, `act`, `discard`, `chat`,
-`set` (host), `approve`/`reject` (host), `chips` (host, positive or negative), `transfer` (host),
-`remove` (host), `rebuy`, `stand`, `run2`, `hist`; the server sends `welcome`, `state` (full
+`set` (host), `approve`/`reject` (host), `chips` (host, positive or negative), `setstack` (host),
+`transfer` (host), `remove` (host), `rebuy`, `stand`, `move`, `run2`, `hist`; the server sends
+`welcome`, `state` (full
 snapshot incl. your hole cards and action bounds), `chat`, `hand` (finished-hand summary),
 `history`, `err`. `GET /api/table/<id>` returns the table ID, closed flag and ledger, which the
 frontend uses to render a closed table without joining it.

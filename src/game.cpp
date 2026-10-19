@@ -1444,6 +1444,18 @@ void Table::handleMsg(Conn* c, int playerId, const J::Ptr& m) {
     sendState();
     return;
   }
+  if (t == "move") {
+    if (!p->seated) { errTo(p, "not seated"); return; }
+    int seat = J::gi(m, "seat");
+    if (seat < 0 || seat > 9) { errTo(p, "bad seat"); return; }
+    if (p->inHand) { errTo(p, "cannot move during a hand"); return; }
+    if (p->seat == seat) { sendState(); return; }
+    if (bySeat(seat)) { errTo(p, "seat is occupied"); return; }
+    p->seat = seat;
+    sysMsg(p->name + " moved to seat " + std::to_string(seat + 1));
+    sendState();
+    return;
+  }
   if (t == "chat") {
     std::string msg = J::gs(m, "m");
     if (msg.empty()) return;
@@ -1604,6 +1616,19 @@ void Table::handleMsg(Conn* c, int playerId, const J::Ptr& m) {
     makeHost(target, p);
     return;
   }
+  if (t == "setstack") {
+    if (!p->host) { errTo(p, "host only"); return; }
+    Player* target = getP(J::gi(m, "id"));
+    int value = J::gi(m, "amt");
+    if (!target || !target->seated || value < 0) { errTo(p, "bad request"); return; }
+    if (target->inHand) { errTo(p, "cannot set stack during a hand"); return; }
+    int delta = value - target->stack;
+    target->stack = value;
+    target->boughtIn = std::max(0, target->boughtIn + delta);
+    sysMsg(p->name + " set " + target->name + "'s stack to " + chipsStr(value));
+    sendState();
+    return;
+  }
   if (t == "chips") {
     if (!p->host) { errTo(p, "host only"); return; }
     Player* target = getP(J::gi(m, "id"));
@@ -1634,7 +1659,12 @@ void Table::handleMsg(Conn* c, int playerId, const J::Ptr& m) {
   }
   if (t == "stand") {
     if (!p->seated) { errTo(p, "not seated"); return; }
+    bool wasHost = p->host;
     unseat(p);
+    if (wasHost) {
+      Player* target = randomOnlinePlayer(p);
+      if (target) makeHost(target, p);
+    }
     sendState();
     return;
   }

@@ -484,7 +484,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   z-index: 40;
   overflow: hidden;
 }
-#sidepanel.host-wide { width: min(700px, calc(100vw - 20px)); }
+#sidepanel.host-wide { width: min(740px, calc(100vw - 20px)); }
 .tabs { display: flex; border-bottom: 1px solid #22384a; }
 .tabbtn { flex: 1; border: none; border-radius: 0; background: transparent; color: #9fb4bf; padding: 9px 0; }
 .tabbtn.on { background: #1a3240; color: #ffd75e; font-weight: 700; }
@@ -493,7 +493,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .optrow { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #b9cdd8; }
 .optrow input[type=checkbox], .optrow input[type=radio] { accent-color: #d9b45b; }
 .seg { display: flex; gap: 4px; flex-wrap: wrap; }
-.seg button { flex: 1; padding: 6px 8px; font-size: 12px; }
+.seg button { flex: 1; padding: 6px 8px; font-size: 12px; white-space: nowrap; }
 .seg button.on { background: #b98f2f; border-color: #d9b45b; color: #14100a; font-weight: 700; }
 .numfield { width: 90px; background: #0b1820; border: 1px solid #2c4a58; border-radius: 6px; color: #e8eef2; padding: 6px 8px; font-size: 13px; outline: none; }
 .reqrow, .ledrow {

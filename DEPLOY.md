@@ -555,3 +555,23 @@ cannot recover a table.
   key is not logged. Do not change it to `$request` or `$request_uri`.
 - The app has no built-in rate limiting. If the site is public and abused, add
   Nginx `limit_req` rules or put a firewall/WAF in front of it.
+
+
+
+## 11. Full deployment after any backend change
+  rsync -av --delete \
+    --exclude .git --exclude test --exclude 'test/__pycache__' \
+    --exclude pokerserver --exclude pokerserver.cgi \
+    --exclude poker --exclude poker.pub \
+    ./ root@63.250.41.224:/opt/pokervariants/
+
+  ssh root@63.250.41.224
+  systemctl stop pokervariants
+  cd /opt/pokervariants
+  make clean && make
+  chown -R root:root /opt/pokervariants
+  find /opt/pokervariants -type d -exec chmod 755 {} +
+  find /opt/pokervariants -type f -exec chmod 644 {} +
+  chmod 755 /opt/pokervariants/pokerserver
+  systemctl start pokervariants
+  systemctl status pokervariants --no-pager

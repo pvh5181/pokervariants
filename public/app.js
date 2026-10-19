@@ -522,7 +522,12 @@ function renderSeats(st) {
 function onSeatClick(seat) {
   const me = S.st && S.st.me;
   if (!me) return;
-  if (me.seated) { toast('You are already seated'); return; }
+  if (me.seated) {
+    const mine = S.st.players.find(p => p.id === me.id);
+    if (mine && mine.state !== 'waiting') { toast('You cannot change seats during a hand'); return; }
+    send({ t: 'move', seat });
+    return;
+  }
   if (me.pending) { toast('Your seat request is already waiting for approval'); return; }
   S.sitSeat = seat;
   $('#sit-seat').textContent = seat + 1;
@@ -1010,11 +1015,12 @@ function renderHostTab(st) {
       '<button class="danger small" data-reject="' + r.id + '">Reject</button></div>').join('')
       : '<div class="muted">no pending requests</div>') + '</div>';
 
-  html += '<h3>Players</h3><div class="hint">Positive amounts add chips; negative amounts remove them. “Make host” transfers host permissions.</div><div id="plist">' +
+  html += '<h3>Players</h3><div class="hint">Use Add for chip adjustments, Set for an exact stack, and “Make host” to transfer host permissions.</div><div id="plist">' +
     st.players.filter(p => p.seated).map(p =>
       '<div class="reqrow"><span class="who">' + esc(p.name) + ' — ' + amt(p.stack) + '</span>' +
-      '<input class="numfield" id="ch-' + p.id + '" placeholder="+/- chips" style="width:80px">' +
-      '<button class="small" data-chips="' + p.id + '">Adjust</button>' +
+      '<input class="numfield" id="ch-' + p.id + '" placeholder="+ chips" style="width:80px">' +
+      '<button class="small" data-chips="' + p.id + '">Add</button>' +
+      '<button class="small" data-setstack="' + p.id + '">Set</button>' +
       (p.host || !p.connected ? '' : '<button class="small" data-host="' + p.id + '">Make host</button>') +
       (p.host ? '' : '<button class="danger small" data-remove="' + p.id + '">Kick</button>') +
       '</div>').join('') + '</div>';
@@ -1130,9 +1136,14 @@ function renderHostTab(st) {
     if (!amt) return;
     send({ t: 'chips', id: parseInt(b.dataset.chips), amt });
   });
-  box.querySelectorAll('[data-host]').forEach(b => b.onclick = () => {
-    if (confirm('Transfer host permissions to this player?')) send({ t: 'transfer', id: parseInt(b.dataset.host) });
+  box.querySelectorAll('[data-setstack]').forEach(b => b.onclick = () => {
+    const raw = $('#ch-' + b.dataset.setstack).value.trim();
+    if (raw === '') return;
+    const value = toCents(raw);
+    if (value < 0) { toast('stack cannot be negative'); return; }
+    send({ t: 'setstack', id: parseInt(b.dataset.setstack), amt: value });
   });
+  box.querySelectorAll('[data-host]').forEach(b => b.onclick = () => send({ t: 'transfer', id: parseInt(b.dataset.host) }));
   box.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => send({ t: 'remove', id: parseInt(b.dataset.remove) }));
 
   $('#row-game27').hidden = settings.game !== 0;
